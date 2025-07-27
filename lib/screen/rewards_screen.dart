@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:convert';
 
 class RewardsScreen extends StatefulWidget {
   const RewardsScreen({super.key});
@@ -8,45 +10,8 @@ class RewardsScreen extends StatefulWidget {
 }
 
 class _RewardsScreenState extends State<RewardsScreen> {
-  // Example data for rewards
-  final List<Map<String, dynamic>> _rewards = [
-    {
-      'id': 'pencil',
-      'name': 'Pencil (1pc)',
-      'points': 500,
-      'description': '1 piece of Number 2 Mongol Pencil with non-smudge eraser. Perfect for school or office use.',
-      'image': 'https://via.placeholder.com/150/FFD700/000000?query=two+pencils+illustration', // Placeholder image
-      'isExpanded': false,
-      'quantity': 1,
-    },
-    {
-      'id': 'rice',
-      'name': 'Rice (1kg)',
-      'points': 1500,
-      'description': '1 kilogram of premium white rice, perfect for daily meals. Sourced locally for freshness.',
-      'image': 'https://via.placeholder.com/150/8B4513/FFFFFF?query=sack+of+rice+illustration', // Placeholder image
-      'isExpanded': false,
-      'quantity': 1,
-    },
-    {
-      'id': 'notebook',
-      'name': 'Notebook (1pc)',
-      'points': 700,
-      'description': 'A standard size notebook with 80 leaves, ideal for school or office use. Eco-friendly paper.',
-      'image': 'https://via.placeholder.com/150/ADD8E6/000000?query=notebook+illustration', // Placeholder image
-      'isExpanded': false,
-      'quantity': 1,
-    },
-    {
-      'id': 'soap',
-      'name': 'Laundry Soap (1pc)',
-      'points': 1000,
-      'description': 'One bar of laundry soap, effective for hand washing clothes. Biodegradable formula.',
-      'image': 'https://via.placeholder.com/150/FFC0CB/000000?query=laundry+soap+bar+illustration', // Placeholder image
-      'isExpanded': false,
-      'quantity': 1,
-    },
-  ];
+  final CollectionReference _rewardsCollection =
+      FirebaseFirestore.instance.collection('rewards');
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +49,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   ],
                 ),
               ),
-              
+
               // Rewards Title and Point Balance
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
@@ -101,7 +66,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Your Point Balance: 123459',
+                      'Your Point Balance: 123459', // Replace with actual user points later
                       style: TextStyle(
                         fontSize: 17,
                         color: Colors.white.withOpacity(0.9),
@@ -111,7 +76,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   ],
                 ),
               ),
-              
+
               // Search Bar
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
@@ -139,15 +104,30 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   ),
                 ),
               ),
-              
+
               // Rewards List
               Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
-                  itemCount: _rewards.length,
-                  itemBuilder: (context, index) {
-                    final reward = _rewards[index];
-                    return _buildRewardCard(reward);
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: _rewardsCollection.snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return const Center(child: Text('Error loading rewards'));
+                    }
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final rewards = snapshot.data!.docs;
+                    return ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
+                      itemCount: rewards.length,
+                      itemBuilder: (context, index) {
+                        final reward = rewards[index].data() as Map<String, dynamic>;
+                        // Ensure quantity and isExpanded are initialized
+                        reward['quantity'] ??= 1;
+                        reward['isExpanded'] ??= false;
+                        return _buildRewardCard(reward);
+                      },
+                    );
                   },
                 ),
               ),
@@ -159,6 +139,9 @@ class _RewardsScreenState extends State<RewardsScreen> {
   }
 
   Widget _buildRewardCard(Map<String, dynamic> reward) {
+    final imageUrl = reward['image']?.startsWith('data:image') == true
+        ? reward['image']
+        : reward['image'] ?? 'https://via.placeholder.com/150';
     return GestureDetector(
       onTap: () {
         setState(() {
@@ -178,18 +161,34 @@ class _RewardsScreenState extends State<RewardsScreen> {
               Center(
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(10),
-                  child: Image.network(
-                    reward['image'],
-                    height: 120,
-                    fit: BoxFit.contain,
-                  ),
+                  child: imageUrl.startsWith('data:image')
+                      ? Image.memory(
+                          base64Decode(imageUrl.split(',')[1]),
+                          height: 120,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) => const Icon(
+                            Icons.broken_image,
+                            size: 120,
+                            color: Colors.grey,
+                          ),
+                        )
+                      : Image.network(
+                          imageUrl,
+                          height: 120,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) => const Icon(
+                            Icons.broken_image,
+                            size: 120,
+                            color: Colors.grey,
+                          ),
+                        ),
                 ),
               ),
               const SizedBox(height: 15),
               const Divider(color: Colors.grey, thickness: 0.8),
               const SizedBox(height: 15),
               Text(
-                reward['name'],
+                reward['name'] ?? 'Unnamed Reward',
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -198,17 +197,25 @@ class _RewardsScreenState extends State<RewardsScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                '${reward['points']} pts',
+                '${reward['points'] ?? 0} pts',
                 style: const TextStyle(
                   fontSize: 17,
                   color: Color(0xFF4CAF50),
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              Text(
+                'Stock: ${reward['stock'] ?? 0}',
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
               if (reward['isExpanded']) ...[
                 const SizedBox(height: 15),
                 Text(
-                  reward['description'],
+                  reward['description'] ?? 'No description available',
                   style: const TextStyle(
                     fontSize: 15,
                     color: Colors.black54,
@@ -242,7 +249,13 @@ class _RewardsScreenState extends State<RewardsScreen> {
                             icon: const Icon(Icons.add, color: Colors.grey, size: 20),
                             onPressed: () {
                               setState(() {
-                                reward['quantity']++;
+                                if (reward['stock'] == null || reward['quantity'] < reward['stock']) {
+                                  reward['quantity']++;
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Cannot exceed available stock')),
+                                  );
+                                }
                               });
                             },
                           ),
@@ -255,7 +268,10 @@ class _RewardsScreenState extends State<RewardsScreen> {
                     ),
                     ElevatedButton(
                       onPressed: () {
-                        // Handle order now
+                        // Handle order now (e.g., deduct points, update stock)
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Order placed for ${reward['quantity']} ${reward['name']}')),
+                        );
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2196F3),
