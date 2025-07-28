@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'dart:convert';
+import 'dart:typed_data';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -17,6 +22,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = false;
   String? _errorMessage;
   User? _user;
+  String? _profileImageBase64; // Store Base64 string for profile image
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -52,8 +59,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _firstNameController.text = nameParts.isNotEmpty ? nameParts[0] : '';
           _lastNameController.text = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
           _emailController.text = _user!.email ?? '';
-          // Get contact number from Firestore, fallback to empty string
           _contactNumberController.text = userDoc.exists ? (userDoc.data()!['contactNumber'] ?? '') : '';
+          _profileImageBase64 = userDoc.exists ? userDoc.data()!['profileImage'] : null;
           _isLoading = false;
         });
       }
@@ -62,6 +69,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() {
           _errorMessage = e.toString();
           _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _pickAndCompressImage() async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 200,
+        maxHeight: 200,
+      );
+      if (image == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No image selected')),
+          );
+        }
+        return;
+      }
+
+      // Read image bytes
+      Uint8List imageBytes = await image.readAsBytes();
+
+      // Compress the image (mobile only)
+      Uint8List? compressedImage;
+      if (!kIsWeb) {
+        compressedImage = await FlutterImageCompress.compressWithList(
+          imageBytes,
+          minHeight: 200,
+          minWidth: 200,
+          quality: 70,
+          format: CompressFormat.jpeg,
+        );
+      } else {
+        // On web, use the original bytes (no compression available)
+        compressedImage = imageBytes;
+      }
+
+      // Convert to Base64
+      final String base64String = base64Encode(compressedImage);
+
+      if (mounted) {
+        setState(() {
+          _profileImageBase64 = 'data:image/jpeg;base64,$base64String';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Failed to pick image: $e';
         });
       }
     }
@@ -78,17 +136,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final displayName = '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}'.trim();
         await _user!.updateDisplayName(displayName);
 
-        // Save contact number to Firestore
+        // Save profile data to Firestore
+        final userData = {
+          'firstName': _firstNameController.text.trim(),
+          'lastName': _lastNameController.text.trim(),
+          'contactNumber': _contactNumberController.text.trim(),
+          'email': _user!.email,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'profileImage': _profileImageBase64 ?? FieldValue.delete(),
+        };
+
         await FirebaseFirestore.instance
             .collection('users')
             .doc(_user!.uid)
-            .set({
-              'firstName': _firstNameController.text.trim(),
-              'lastName': _lastNameController.text.trim(),
-              'contactNumber': _contactNumberController.text.trim(),
-              'email': _user!.email,
-              'updatedAt': FieldValue.serverTimestamp(),
-            }, SetOptions(merge: true));
+            .set(userData, SetOptions(merge: true));
 
         await _user!.reload();
         if (mounted) {
@@ -253,27 +314,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               textAlign: TextAlign.center,
                             ),
                           ),
-                        // Profile Image Placeholder
+                        // Profile Image
                         Center(
                           child: Column(
                             children: [
-                              Container(
-                                width: 100,
-                                height: 100,
-                                decoration: BoxDecoration(
-                                  color: Colors.grey[200],
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.grey.shade300, width: 2),
+                              InkWell(
+                                onTap: _isLoading ? null : _pickAndCompressImage,
+                                child: Container(
+                                  width: 100,
+                                  height: 100,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[50],
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: Colors.grey.shade300, width: 2),
+                                  ),
+                                  child: _profileImageBase64 != null && _profileImageBase64!.startsWith('data:image')
+                                      ? ClipRRect(
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: Image.memory(
+                                            base64Decode(_profileImageBase64!.split(',')[1]),
+                                            width: 100,
+                                            height: 100,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (context, error, stackTrace) => const Icon(
+                                              Icons.person,
+                                              size: 60,
+                                              color: Colors.black54,
+                                            ),
+                                          ),
+                                        )
+                                      : const Icon(Icons.add_a_photo, size: 40, color: Colors.green),
                                 ),
-                                child: const Icon(Icons.person, size: 60, color: Colors.black54),
                               ),
                               const SizedBox(height: 10),
-                              const Text(
-                                'Upload Image',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey,
-                                  fontWeight: FontWeight.w500,
+                              GestureDetector(
+                                onTap: _isLoading ? null : _pickAndCompressImage,
+                                child: const Text(
+                                  'Upload Image',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Color(0xFF2196F3),
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ),
                             ],
