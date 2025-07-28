@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -31,9 +32,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       _user = FirebaseAuth.instance.currentUser;
       if (_user == null) {
-        Navigator.pushReplacementNamed(context, '/login');
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/login');
+        }
         return;
       }
+
+      // Fetch user data from Firestore
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(_user!.uid)
+          .get();
+
       if (mounted) {
         setState(() {
           // Split displayName into first and last name (if available)
@@ -42,15 +52,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _firstNameController.text = nameParts.isNotEmpty ? nameParts[0] : '';
           _lastNameController.text = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
           _emailController.text = _user!.email ?? '';
-          _contactNumberController.text = _user!.phoneNumber ?? '';
+          // Get contact number from Firestore, fallback to empty string
+          _contactNumberController.text = userDoc.exists ? (userDoc.data()!['contactNumber'] ?? '') : '';
           _isLoading = false;
         });
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -64,25 +77,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
         // Combine first and last name for displayName
         final displayName = '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}'.trim();
         await _user!.updateDisplayName(displayName);
+
+        // Save contact number to Firestore
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_user!.uid)
+            .set({
+              'firstName': _firstNameController.text.trim(),
+              'lastName': _lastNameController.text.trim(),
+              'contactNumber': _contactNumberController.text.trim(),
+              'email': _user!.email,
+              'updatedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+
         await _user!.reload();
-        setState(() {
-          _user = FirebaseAuth.instance.currentUser;
-        });
-        // Note: Contact number not saved due to Firestore restrictions
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Profile updated successfully. Contact number not saved due to database restrictions.'),
-          ),
-        );
+        if (mounted) {
+          setState(() {
+            _user = FirebaseAuth.instance.currentUser;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Profile updated successfully.'),
+              backgroundColor: Color(0xFF4CAF50),
+            ),
+          );
+        }
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+        });
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -97,13 +129,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Navigator.pushReplacementNamed(context, '/login');
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+        });
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 

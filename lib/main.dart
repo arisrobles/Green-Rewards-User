@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:green_rewards_v1/screen/forgot_screen.dart';
 import 'package:green_rewards_v1/screen/get_started_screen.dart';
 import 'package:green_rewards_v1/screen/home_screen.dart';
 import 'package:green_rewards_v1/screen/leaderboards_screen.dart';
@@ -48,6 +49,8 @@ class MainApp extends StatelessWidget {
         '/profile': (context) => const ProfileScreen(),
         '/transactions': (context) => const TransactionsScreen(),
         '/leaderboards': (context) => const LeaderboardsScreen(),
+        '/forgot-password': (context) => const ForgotScreen(),
+        
       },
     );
   }
